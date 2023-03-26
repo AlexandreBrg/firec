@@ -44,3 +44,59 @@ jobs:
         with:
           command: fmt
           args: --all -- --check
+  
+  run_examples:
+    name: Run example ${{ matrix.name }}
+    needs:
+      - rustfmt
+      - clippy
+    strategy:
+      matrix:
+        name:
+          - simple_vm
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Download firecracker latest archive
+        uses: robinraju/release-downloader@v1.7
+        with: 
+          repository: "firecracker-microvm/firecracker"
+          latest: true
+          fileName: "firecracker-v*-x86_64.tgz"
+          tarBall: true
+      - name: Force cargo to use root user
+        run: |
+          mkdir .cargo || true
+          echo "[target.x86_64-unknown-linux-gnu]" > .cargo/config
+          echo "runner = 'sudo -E'" >> .cargo/config
+
+      - name: Install firecracker
+        run: |
+          mkdir .bin
+          export TAG_NAME=$(gh release view -R firecracker-microvm/firecracker -q ".tagName" --json "tagName")
+          echo "Firecracker version is ${TAG_NAME}"
+          echo "Unzipping archive"
+          find . -type f -iname "firecracker-*.tgz" -exec bash -c 'tar -xvf "${0}" -C ".bin"' {} \;
+          echo "Move firecracker binary to /usr/bin/firecracker"
+          sudo mv ./.bin/release-${TAG_NAME}-x86_64/firecracker-${TAG_NAME}-x86_64 /usr/bin/firecracker
+          echo "Move jailer binary to /usr/bin/jailer"
+          sudo mv ./.bin/release-${TAG_NAME}-x86_64/jailer-${TAG_NAME}-x86_64 /usr/bin/jailer
+
+      - name: Install nightly toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+
+      - name: Run example ${{ matrix.name }}
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: --example ${{ matrix.name }}
+  
+
